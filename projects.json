@@ -1,0 +1,72 @@
+{
+  "projects": [
+    {
+      "name": "infinite_buying_V4",
+      "category": "trading",
+      "type": "python-streamlit",
+      "github_repo": "emdoc119/infinite_buying_V4",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/infinite_buying_v4",
+      "entry_point": "main.py",
+      "run_command": "python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt streamlit && streamlit run main.py --server.port {port} --server.headless true",
+      "always_on": true,
+      "status": "stopped"
+    },
+    {
+      "name": "secretary_agent",
+      "category": "agent",
+      "type": "python-fastapi",
+      "github_repo": "emdoc119/secretary_agent",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/secretary_agent/personal-agent-os",
+      "entry_point": "src/main.py",
+      "run_command": "uv run uvicorn src.main:app --port {port} --host 0.0.0.0",
+      "always_on": false,
+      "status": "stopped"
+    },
+    {
+      "name": "auto_paper_system",
+      "category": "research",
+      "type": "static-html",
+      "github_repo": "emdoc119/auto_paper_system",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/auto_paper_system",
+      "entry_point": "",
+      "run_command": "",
+      "always_on": false,
+      "status": "stopped"
+    },
+    {
+      "name": "auto_ER_schedule",
+      "category": "medical",
+      "type": "static-html",
+      "github_repo": "emdoc119/auto_ER_schedule",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/auto_ER_schedule_repo",
+      "entry_point": "aer_dashboard.html",
+      "access_url": "https://emdoc119.github.io/auto_ER_schedule/",
+      "github_pages_url": "https://emdoc119.github.io/auto_ER_schedule/",
+      "run_command": "",
+      "always_on": false,
+      "status": "deployed"
+    },
+    {
+      "name": "assetstyle_stock_dashboard",
+      "category": "dashboard",
+      "type": "node-nextjs",
+      "github_repo": "emdoc119/assetstyle_stock_dashboard",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/assetstyle_stock_dashboard",
+      "entry_point": "",
+      "run_command": "npm install && npm run dev -- -p {port}",
+      "always_on": false,
+      "status": "stopped"
+    },
+    {
+      "name": "Stock-checklist",
+      "category": "dashboard",
+      "type": "python-streamlit",
+      "github_repo": "emdoc119/Stock-checklist",
+      "local_path": "/Users/choo/.gemini/antigravity/scratch/stock_checklist",
+      "entry_point": "Home.py",
+      "run_command": "python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt streamlit && streamlit run Home.py --server.port {port} --server.headless true",
+      "always_on": false,
+      "status": "stopped"
+    }
+  ]
+}
