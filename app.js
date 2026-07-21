@@ -2,43 +2,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusIndicator = document.querySelector('.status-indicator');
   const statusText = document.getElementById('status-text');
   
-  const tailscaleIp = '100.67.149.56';
-  const port = '3001';
-  const apiUrl = `http://${tailscaleIp}:${port}/api/projects`;
+  // 브라우저의 보안 정책(Mixed Content)으로 인해 HTTPS 사이트(GitHub Pages)에서
+  // HTTP 주소(Tailscale IP)로의 백그라운드 상태 확인(fetch)이 차단됩니다.
+  // 따라서 상태 확인은 삭제하고 클릭 유도로 변경합니다.
   
-  async function checkServerStatus() {
-    try {
-      // AbortController to timeout the fetch quickly if Tailscale is off
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-      
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      // If we reach here, the network connection succeeded.
-      // (Even if it returns 401 Unauthorized because of Basic Auth, it means the server is reachable!)
-      if (response.ok || response.status === 401) {
-        statusIndicator.className = 'status-indicator online';
-        statusText.textContent = 'Server Online (Tailscale Connected)';
-        statusText.style.color = 'var(--success)';
-      } else {
-        throw new Error('Server returned an unexpected error');
-      }
-      
-    } catch (error) {
-      statusIndicator.className = 'status-indicator offline';
-      statusText.textContent = 'Server Offline (Please turn on Tailscale)';
-      statusText.style.color = 'var(--error)';
-    }
-  }
-
-  // Check immediately on load
-  checkServerStatus();
-  
-  // Optionally, check every 10 seconds
-  setInterval(checkServerStatus, 10000);
+  statusIndicator.className = 'status-indicator';
+  statusIndicator.style.backgroundColor = 'var(--primary)';
+  statusIndicator.style.boxShadow = '0 0 10px var(--primary)';
+  statusText.textContent = 'Ready (Click below to open Dashboard)';
+  statusText.style.color = 'var(--primary)';
 });
