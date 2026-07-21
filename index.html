@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Progect Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="portal-container">
+    <header class="portal-header">
+      <h1>Progect Portal</h1>
+      <p class="subtitle">Quick Access to your Mac Mini Server</p>
+    </header>
+
+    <div class="status-card" id="status-card">
+      <div class="status-indicator"></div>
+      <div class="status-text" id="status-text">Checking Tailscale connection...</div>
+    </div>
+
+    <div class="links-grid">
+      <!-- Main Dashboard Link -->
+      <a href="http://100.67.149.56:3001" class="link-card primary-link" target="_blank" rel="noopener noreferrer">
+        <div class="link-icon">🖥️</div>
+        <div class="link-content">
+          <h3>Mac Mini Dashboard</h3>
+          <p>Manage all projects and agents</p>
+        </div>
+      </a>
+
+      <!-- Quick Link to Infinite Buying V4 -->
+      <!-- We don't know the exact port of infinite_buying_v4, so we just link to the dashboard or leave it as a placeholder.
+           Wait, if they use the dashboard to start it, they don't know the port. But if it's always on, they can find it in the dashboard.
+           Let's just provide the dashboard link. -->
+      <a href="http://100.67.149.56:3001" class="link-card" target="_blank" rel="noopener noreferrer">
+        <div class="link-icon">📈</div>
+        <div class="link-content">
+          <h3>Infinite Buying V4</h3>
+          <p>Open via Dashboard</p>
+        </div>
+      </a>
+      
+      <!-- Quick Link to Secretary Agent -->
+      <a href="http://100.67.149.56:3001" class="link-card" target="_blank" rel="noopener noreferrer">
+        <div class="link-icon">🤖</div>
+        <div class="link-content">
+          <h3>Secretary Agent</h3>
+          <p>Open via Dashboard</p>
+        </div>
+      </a>
+    </div>
+
+    <footer class="portal-footer">
+      <p>⚠️ Requires Tailscale to be active on your current device.</p>
+      <p class="ip-info">Target Server: <code>100.67.149.56</code></p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
