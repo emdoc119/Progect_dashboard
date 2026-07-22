@@ -1,158 +1,424 @@
+import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
-import axios from 'axios';
+import basicAuth from 'express-basic-auth';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import checkPort from 'tcp-port-used';
+import { createStream } from 'rotating-file-stream';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-app.use(cors());
-app.use(express.json());
-
-/* 
-// [Phase 1: Basic Auth Middleware - uncomment to enable]
-// npm install express-basic-auth
-import basicAuth from 'express-basic-auth';
-app.use(basicAuth({
-    users: { 'admin': 'farmer123!' },
-    challenge: true
-}));
-*/
-
-const APPS_DIR = path.join(__dirname, 'apps');
-app.use('/apps', express.static(APPS_DIR));
-
-// Load Registry
-const registryPath = path.join(__dirname, 'projects.json');
-let projects = [];
-try {
-  projects = JSON.parse(fs.readFileSync(registryPath, 'utf8')).projects;
-} catch (err) {
-  console.error('Failed to load projects.json:', err);
+// Mask sensitive data (P0-3)
+export function maskSecretData(str) {
+  if (!str || typeof str !== 'string') return str;
+  // Mask URLs containing credentials: scheme://user:pass@host
+  let masked = str.replace(/([a-zA-Z0-9+.-]+:\/\/)([^:/@\s]+):([^:/@\s]+)@/gi, '$1***:***@');
+  // Mask quoted token/key values: token="value" or token='value'
+  masked = masked.replace(/(password|secret|token|key|api_key)\s*[=:]\s*["']([^"']+)["']/gi, '$1=***');
+  // Mask unquoted key=value secrets
+  masked = masked.replace(/(password|secret|token|key|api_key)\s*[=:]\s*([^\s&"']+)/gi, '$1=***');
+  return masked;
 }
 
-const runningApps = {};
-let nextAppPort = 4000;
+/**
+ * Creates and configures the Express application.
+ * @param {Object} [options] - Configuration overrides for testing.
+ * @param {string} [options.host] - Bind host override.
+ * @param {number} [options.port] - Bind port override.
+ * @param {boolean} [options.autoStart] - Whether to auto-start always_on projects.
+ * @param {string} [options.authUsername] - Basic Auth username override.
+ * @param {string} [options.authPassword] - Basic Auth password override.
+ * @param {string} [options.registryPath] - Path to projects.json override.
+ * @param {string} [options.distPath] - Path to dist/ override.
+ * @returns {{ app: express.Application, runningApps: Object, projects: Array, startProject: Function, startServer: Function }}
+ */
+export function createApp(options = {}) {
+  const HOST = options.host ?? (process.env.DASHBOARD_ALLOW_LAN === 'true' ? '0.0.0.0' : (process.env.DASHBOARD_HOST || '127.0.0.1'));
+  const PORT = options.port ?? (process.env.DASHBOARD_PORT || 3001);
+  const AUTO_START_ENABLED = options.autoStart ?? (process.env.DASHBOARD_AUTOSTART !== 'false');
+  const authUsername = options.authUsername ?? process.env.DASHBOARD_AUTH_USERNAME;
+  const authPassword = options.authPassword ?? process.env.DASHBOARD_AUTH_PASSWORD;
 
-async function findAvailablePort(startPort) {
-  let port = startPort;
-  while (await checkPort.check(port, '127.0.0.1')) {
-    port++;
-  }
-  return port;
-}
-
-// 1. Get all projects
-app.get('/api/projects', (req, res) => {
-  const enriched = projects.map(p => ({
-    ...p,
-    isRunning: !!runningApps[p.name],
-    currentPort: runningApps[p.name] ? runningApps[p.name].port : null
-  }));
-  res.json(enriched);
-});
-
-// 2. Start a project
-app.post('/api/projects/:name/start', async (req, res) => {
-  const { name } = req.params;
-  const project = projects.find(p => p.name === name);
-
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  if (project.type === 'static-html') {
-    return res.json({ success: true, message: 'Static project', url: project.access_url || `/apps/${name}/${project.entry_point}` });
+  // External bind safety check
+  if (HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
+    if (!authUsername || !authPassword) {
+      console.error(`FATAL: Server bound to external interface ${HOST} without DASHBOARD_AUTH_USERNAME/PASSWORD. Authentication is strictly required.`);
+      process.exit(1);
+    }
   }
 
-  if (runningApps[name]) {
-    return res.json({ success: true, message: 'Already running', url: `http://localhost:${runningApps[name].port}/` });
+  const app = express();
+  app.use(express.json());
+
+  // Basic Auth Middleware applied before static routing
+  if (authUsername && authPassword) {
+    app.use(basicAuth({
+      authorizer: (username, password) => {
+        try {
+          const expectedUser = Buffer.from(authUsername);
+          const expectedPass = Buffer.from(authPassword);
+          const givenUser = Buffer.from(username);
+          const givenPass = Buffer.from(password);
+
+          if (expectedUser.length !== givenUser.length || expectedPass.length !== givenPass.length) {
+            return false;
+          }
+
+          const userMatches = crypto.timingSafeEqual(givenUser, expectedUser);
+          const passMatches = crypto.timingSafeEqual(givenPass, expectedPass);
+          return userMatches && passMatches;
+        } catch {
+          return false;
+        }
+      },
+      challenge: true
+    }));
   }
 
+  // Serve /apps
+  const APPS_DIR = path.join(__dirname, 'apps');
+  app.use('/apps', express.static(APPS_DIR));
+
+  // Serve the built dashboard in production. Vite serves the source files only
+  // during development and proxies /api to this process.
+  const distPath = options.distPath ?? path.join(__dirname, 'dist');
+  const hasFrontendBuild = fs.existsSync(distPath);
+  if (hasFrontendBuild) {
+    app.use(express.static(distPath));
+  }
+
+  const regPath = options.registryPath ?? path.join(__dirname, 'projects.json');
+  let projects = [];
   try {
-    const port = await findAvailablePort(nextAppPort++);
-    let commandStr = project.run_command.replace(/{port}/g, port.toString());
-    
-    console.log(`[ProcessManager] Starting ${name} on port ${port}`);
-    console.log(`[ProcessManager] Command: ${commandStr}`);
-    console.log(`[ProcessManager] Cwd: ${project.local_path}`);
+    projects = JSON.parse(fs.readFileSync(regPath, 'utf8')).projects;
+  } catch (err) {
+    console.error('Failed to load projects.json:', err);
+  }
 
-    if (!fs.existsSync(project.local_path)) {
-      return res.status(400).json({ error: 'Local path does not exist: ' + project.local_path });
+  // Validate registry schema and filter out invalid entries
+  const validationErrors = [];
+  projects = projects.filter(p => {
+    const errors = [];
+    if (!p.name || typeof p.name !== 'string') errors.push('missing or invalid "name"');
+    if (!p.type || typeof p.type !== 'string') errors.push('missing or invalid "type"');
+
+    if (p.type === 'static-html') {
+      // Static projects need at least one of access_url or entry_point
+      if (!p.access_url && !p.entry_point) {
+        errors.push('static-html project must have "access_url" or "entry_point"');
+      }
+    } else {
+      // Dynamic projects need these fields
+      if (!p.local_path) errors.push('missing "local_path"');
+      if (!p.run_command) errors.push('missing "run_command"');
+      if (p.exposure !== 'loopback') errors.push('"exposure" must be "loopback" for dynamic projects');
+      if (p.run_command && !p.run_command.includes('{host}')) {
+        errors.push('"run_command" must include {host} placeholder');
+      }
+      if (typeof p.always_on !== 'boolean') errors.push('"always_on" must be a boolean');
     }
 
-    const child = spawn('bash', ['-c', commandStr], { 
-      cwd: project.local_path, 
+    if (errors.length > 0) {
+      const msg = `[Registry] Project "${p.name || '(unnamed)'}" has schema errors: ${errors.join('; ')}`;
+      console.warn(msg);
+      validationErrors.push(msg);
+      return false; // filter out invalid project
+    }
+    return true;
+  });
+
+  const runningApps = {};
+  let nextAppPort = 4000;
+
+  async function findAvailablePort(startPort) {
+    let port = startPort;
+    while (await checkPort.check(port, '127.0.0.1')) {
+      port++;
+    }
+    return port;
+  }
+
+  // Log rotation utility using rotating-file-stream
+  function getLogStream(name) {
+    return createStream(`logs_${name}.txt`, {
+      size: '10M', // rotate every 10 MegaBytes
+      interval: '1d', // rotate daily
+      maxFiles: 5, // keep at most 5 files
+      path: __dirname
+    });
+  }
+
+  async function startProject(name, manual = false) {
+    const project = projects.find(p => p.name === name);
+    if (!project) return { status: 404, message: 'Project not found' };
+
+    if (project.type === 'static-html') {
+      if (project.access_url) {
+        return { status: 200, message: 'Static project', url: project.access_url };
+      } else if (project.entry_point) {
+        return { status: 200, message: 'Static project', url: `/apps/${name}/${project.entry_point}` };
+      } else {
+        return { status: 400, message: 'No access URL or entry point defined for this static project.' };
+      }
+    }
+
+    if (runningApps[name]) {
+      if (runningApps[name].status === 'running') {
+        return { status: 200, message: 'Already running', url: `http://localhost:${runningApps[name].port}/` };
+      }
+      if (runningApps[name].status === 'starting') {
+        return { status: 400, message: 'Already starting' };
+      }
+      if (runningApps[name].status === 'stopping') {
+        return { status: 400, message: 'Currently stopping' };
+      }
+    }
+
+    // Reset retry count on manual start
+    if (manual && runningApps[name]) {
+      runningApps[name].retryCount = 0;
+      if (runningApps[name].restartTimer) {
+        clearTimeout(runningApps[name].restartTimer);
+        runningApps[name].restartTimer = null;
+      }
+    }
+
+    const port = await findAvailablePort(nextAppPort++);
+    let commandStr = project.run_command;
+
+    if (project.type !== 'static-html') {
+      if (project.exposure !== 'loopback') {
+        return { status: 400, message: 'Invalid exposure setting. Only loopback is permitted for dynamic apps.' };
+      }
+      if (!commandStr.includes('{host}')) {
+        return { status: 400, message: 'run_command must use {host} placeholder for security binding.' };
+      }
+      commandStr = commandStr.replace(/{host}/g, '127.0.0.1');
+      commandStr = commandStr.replace(/{port}/g, port.toString());
+    }
+
+    if (!fs.existsSync(project.local_path)) {
+      return { status: 500, error: 'Local path does not exist: ' + project.local_path };
+    }
+
+    console.log(`[ProcessManager] Starting ${name} on port ${port}`);
+
+    const child = spawn('bash', ['-c', commandStr], {
+      cwd: project.local_path,
       stdio: 'pipe',
-      detached: true // Allow independent execution
+      detached: true
     });
 
-    // Handle logs
-    const logPath = path.join(__dirname, `logs_${name}.txt`);
-    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    const logStream = getLogStream(name);
     child.stdout.pipe(logStream);
     child.stderr.pipe(logStream);
 
+    const appState = {
+      port,
+      process: child,
+      status: 'starting',
+      retryCount: (runningApps[name] && !manual) ? runningApps[name].retryCount : 0,
+      lastError: null,
+      manualStop: false,
+      logStream: logStream
+    };
+    runningApps[name] = appState;
+
+    // Mark running after a stable time (60 seconds)
+    const runTimer = setTimeout(() => {
+      if (runningApps[name] && runningApps[name].status === 'starting') {
+        runningApps[name].status = 'running';
+        runningApps[name].retryCount = 0; // reset on stable run
+      }
+    }, 60000);
+
+    function closeLogStream(appName) {
+      if (runningApps[appName] && runningApps[appName].logStream) {
+        runningApps[appName].logStream.end();
+        runningApps[appName].logStream = null;
+      }
+    }
+
     child.on('error', (err) => {
       console.error(`[ProcessManager] Error starting ${name}:`, err);
-      delete runningApps[name];
+      closeLogStream(name);
+      if (runningApps[name]) {
+        runningApps[name].status = 'crashed';
+        runningApps[name].lastError = maskSecretData(err.message);
+        runningApps[name].lastCrashTime = new Date().toISOString();
+      }
     });
 
     child.on('close', (code) => {
+      clearTimeout(runTimer);
       console.log(`[ProcessManager] ${name} exited with code ${code}`);
-      delete runningApps[name];
-      
-      // Watchdog: auto-restart if always_on is true
-      if (project.always_on) {
-        console.log(`[Watchdog] Restarting ${name}...`);
-        // Basic delay before restart to avoid spawn loop
+
+      // Safely end log stream to prevent FD leaks
+      closeLogStream(name);
+
+      if (runningApps[name] && !runningApps[name].manualStop) {
+        runningApps[name].status = 'crashed';
+        runningApps[name].lastError = maskSecretData(`Exited with code ${code}`);
+        runningApps[name].lastCrashTime = new Date().toISOString();
+
+        if (project.always_on) {
+          runningApps[name].retryCount++;
+          if (runningApps[name].retryCount > 5) {
+            console.error(`[Watchdog] ${name} crashed too many times. Giving up.`);
+            runningApps[name].status = 'crashed';
+          } else {
+            const delay = Math.min(5000 * Math.pow(2, runningApps[name].retryCount - 1), 60000);
+            console.log(`[Watchdog] Restarting ${name} in ${delay}ms (Attempt ${runningApps[name].retryCount})...`);
+            runningApps[name].status = 'backoff';
+            runningApps[name].restartTimer = setTimeout(() => {
+               if (runningApps[name] && runningApps[name].status === 'backoff') {
+                 startProject(name, false).catch(e => console.error(`Watchdog restart failed for ${name}:`, e));
+               }
+            }, delay);
+          }
+        }
+      } else if (runningApps[name]) {
+        runningApps[name].status = 'stopped';
+      }
+    });
+
+    return { status: 200, message: 'Started', url: `http://localhost:${port}/` };
+  }
+
+  app.get('/api/projects', (req, res) => {
+    const enriched = projects.map(p => {
+      const appState = runningApps[p.name];
+      if (p.type === 'static-html' && p.status === 'deployed') {
+        return {
+          ...p,
+          isRunning: true,
+          currentPort: null,
+          lastError: null,
+          retryCount: 0
+        };
+      }
+      return {
+        ...p,
+        isRunning: appState && appState.status === 'running',
+        status: appState ? appState.status : 'stopped',
+        currentPort: appState ? appState.port : null,
+        lastError: appState ? appState.lastError : null,
+        lastCrashTime: appState ? appState.lastCrashTime : null,
+        retryCount: appState ? appState.retryCount : 0
+      };
+    });
+    res.json(enriched);
+  });
+
+  app.post('/api/projects/:name/start', async (req, res) => {
+    try {
+      const result = await startProject(req.params.name, true);
+      if (result.status === 200) {
+        res.json({ success: true, ...result });
+      } else {
+        res.status(result.status).json({ error: result.error || result.message });
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to start process: ' + maskSecretData(err.message) });
+    }
+  });
+
+  app.post('/api/projects/:name/stop', (req, res) => {
+    const { name } = req.params;
+    const appState = runningApps[name];
+
+    if (!appState) return res.json({ success: true, message: 'Not running' });
+
+    if (appState.restartTimer) {
+      clearTimeout(appState.restartTimer);
+      appState.restartTimer = null;
+    }
+
+    appState.manualStop = true;
+
+    if (!appState.process) {
+      appState.status = 'stopped';
+      return res.json({ success: true, message: 'Stopped backoff timer' });
+    }
+
+    try {
+      appState.status = 'stopping';
+      process.kill(-appState.process.pid);
+      res.json({ success: true, message: 'Stopped' });
+    } catch {
+      res.status(500).json({ error: 'Failed to stop process' });
+    }
+  });
+
+  // Express 5 does not support the former app.get('*') wildcard syntax. Use a
+  // final middleware so client-side routes receive index.html while API, /apps,
+  // and missing asset requests keep their own status codes.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/apps')) {
+      return next();
+    }
+    if (path.extname(req.path)) return next();
+    if (!hasFrontendBuild) {
+      return res.status(503).send('Dashboard frontend is not built. Run npm run build before npm run start.');
+    }
+    return res.sendFile('index.html', { root: distPath });
+  });
+
+  // Graceful shutdown helper
+  function gracefulShutdown() {
+    Object.keys(runningApps).forEach(name => {
+      if (runningApps[name].restartTimer) clearTimeout(runningApps[name].restartTimer);
+      if (runningApps[name].logStream) {
+        runningApps[name].logStream.end();
+        runningApps[name].logStream = null;
+      }
+      if (runningApps[name].process) {
+        try { process.kill(-runningApps[name].process.pid); } catch{}
+      }
+    });
+    process.exit(0);
+  }
+
+  /**
+   * Start the server. Separated from createApp() so tests can create the app
+   * without binding to a port.
+   */
+  function startServer() {
+    app.listen(PORT, HOST, () => {
+      console.log(`Backend API Server running on http://${HOST}:${PORT}`);
+
+      if (AUTO_START_ENABLED) {
         setTimeout(() => {
-          axios.post(`http://localhost:${PORT}/api/projects/${name}/start`).catch(e => {});
-        }, 5000);
+          projects.forEach(p => {
+            if (p.always_on && p.type !== 'static-html') {
+              console.log(`[Watchdog] Auto-starting always_on project: ${p.name}`);
+              startProject(p.name, false).catch(err => {
+                console.error(`Failed to auto-start ${p.name}`, err);
+              });
+            }
+          });
+        }, 1000);
+      } else {
+        console.log('Project auto-start is disabled (DASHBOARD_AUTOSTART=false).');
       }
     });
 
-    runningApps[name] = { port, process: child, logPath };
-
-    res.json({ success: true, message: 'Started', url: `http://localhost:${port}/` });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to start process: ' + err.message });
+    // Cleanup on exit
+    process.on('SIGINT', gracefulShutdown);
+    process.on('SIGTERM', gracefulShutdown);
   }
-});
 
-// 3. Stop a project
-app.post('/api/projects/:name/stop', (req, res) => {
-  const { name } = req.params;
-  const running = runningApps[name];
-  
-  if (!running) return res.json({ success: true, message: 'Not running' });
+  return { app, runningApps, projects, startProject, startServer, gracefulShutdown, validationErrors };
+}
 
-  try {
-    process.kill(-running.process.pid); // Kill process group
-    delete runningApps[name];
-    res.json({ success: true, message: 'Stopped' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to stop process' });
-  }
-});
+// Only listen if this file is run directly (allows importing for tests)
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { startServer } = createApp();
+  startServer();
+}
 
-app.listen(PORT, () => {
-  console.log(`Backend API Server running on http://localhost:${PORT}`);
-  
-  // Auto-start always_on projects
-  setTimeout(async () => {
-    const axios = (await import('axios')).default;
-    projects.forEach(p => {
-      if (p.always_on && p.type !== 'static-html') {
-        console.log(`[Watchdog] Auto-starting always_on project: ${p.name}`);
-        axios.post(`http://localhost:${PORT}/api/projects/${p.name}/start`).catch(err => {
-          console.error(`Failed to auto-start ${p.name}`);
-        });
-      }
-    });
-  }, 1000);
-});
+export default createApp;

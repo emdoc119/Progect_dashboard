@@ -7,8 +7,9 @@
       "github_repo": "emdoc119/infinite_buying_V4",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/infinite_buying_v4",
       "entry_point": "main.py",
-      "run_command": "python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt streamlit && streamlit run main.py --server.port {port} --server.headless true",
+      "run_command": "source venv/bin/activate && streamlit run main.py --server.address {host} --server.port {port} --server.headless true",
       "always_on": true,
+      "exposure": "loopback",
       "status": "stopped"
     },
     {
@@ -18,8 +19,9 @@
       "github_repo": "emdoc119/secretary_agent",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/secretary_agent/personal-agent-os",
       "entry_point": "src/main.py",
-      "run_command": "uv run uvicorn src.main:app --port {port} --host 0.0.0.0",
+      "run_command": "uv run uvicorn src.main:app --port {port} --host {host}",
       "always_on": false,
+      "exposure": "loopback",
       "status": "stopped"
     },
     {
@@ -29,6 +31,7 @@
       "github_repo": "emdoc119/auto_paper_system",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/auto_paper_system",
       "entry_point": "",
+      "access_url": "https://github.com/emdoc119/auto_paper_system",
       "run_command": "",
       "always_on": false,
       "status": "stopped"
@@ -53,8 +56,9 @@
       "github_repo": "emdoc119/assetstyle_stock_dashboard",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/assetstyle_stock_dashboard",
       "entry_point": "",
-      "run_command": "npm install && npm run dev -- -p {port}",
+      "run_command": "npm run dev -- -H {host} -p {port}",
       "always_on": false,
+      "exposure": "loopback",
       "status": "stopped"
     },
     {
@@ -64,8 +68,9 @@
       "github_repo": "emdoc119/Stock-checklist",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/stock_checklist",
       "entry_point": "Home.py",
-      "run_command": "python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt streamlit && streamlit run Home.py --server.port {port} --server.headless true",
+      "run_command": "source venv/bin/activate && streamlit run Home.py --server.address {host} --server.port {port} --server.headless true",
       "always_on": false,
+      "exposure": "loopback",
       "status": "stopped"
     }
   ]
