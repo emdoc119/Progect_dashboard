@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import checkPort from 'tcp-port-used';
 import { createStream } from 'rotating-file-stream';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -132,6 +133,7 @@ export function createApp(options = {}) {
   });
 
   const runningApps = {};
+  const uptimeStats = {};
   let nextAppPort = 4000;
 
   async function findAvailablePort(startPort) {
@@ -224,9 +226,14 @@ export function createApp(options = {}) {
       retryCount: (runningApps[name] && !manual) ? runningApps[name].retryCount : 0,
       lastError: null,
       manualStop: false,
-      logStream: logStream
+      logStream: logStream,
+      startedAt: new Date().toISOString()
     };
     runningApps[name] = appState;
+
+    // Track uptime
+    if (!uptimeStats[name]) uptimeStats[name] = { totalUptimeSec: 0, lastStarted: null, lastCrashed: null, crashCount: 0 };
+    uptimeStats[name].lastStarted = appState.startedAt;
 
     // Mark running after a stable time (60 seconds)
     const runTimer = setTimeout(() => {
@@ -265,6 +272,14 @@ export function createApp(options = {}) {
         runningApps[name].lastError = maskSecretData(`Exited with code ${code}`);
         runningApps[name].lastCrashTime = new Date().toISOString();
 
+        // Accumulate uptime on crash
+        if (runningApps[name].startedAt && uptimeStats[name]) {
+          const elapsed = Math.floor((Date.now() - new Date(runningApps[name].startedAt).getTime()) / 1000);
+          uptimeStats[name].totalUptimeSec += elapsed;
+          uptimeStats[name].lastCrashed = new Date().toISOString();
+          uptimeStats[name].crashCount++;
+        }
+
         if (project.always_on) {
           runningApps[name].retryCount++;
           if (runningApps[name].retryCount > 5) {
@@ -283,11 +298,63 @@ export function createApp(options = {}) {
         }
       } else if (runningApps[name]) {
         runningApps[name].status = 'stopped';
+
+        // Accumulate uptime on manual stop
+        if (runningApps[name].startedAt && uptimeStats[name]) {
+          const elapsed = Math.floor((Date.now() - new Date(runningApps[name].startedAt).getTime()) / 1000);
+          uptimeStats[name].totalUptimeSec += elapsed;
+        }
       }
     });
 
     return { status: 200, message: 'Started', url: `http://localhost:${port}/` };
   }
+
+  // System health endpoint (Sprint 2)
+  app.get('/api/system', (req, res) => {
+    const cpus = os.cpus();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const uptimeSec = os.uptime();
+
+    // Calculate CPU usage from /proc-like data (macOS: use loadavg as proxy)
+    const loadAvg = os.loadavg();
+    const cpuCount = cpus.length;
+    const cpuUsage = Math.min(100, Math.round((loadAvg[0] / cpuCount) * 100));
+
+    // Disk info via sync call
+    let diskUsage = { total: 0, used: 0, free: 0, percent: 0 };
+    try {
+      const stat = fs.statfsSync ? fs.statfsSync(__dirname) : null;
+      if (stat) {
+        diskUsage = {
+          total: stat.bsize * stat.blocks,
+          free: stat.bsize * stat.bfree,
+          used: stat.bsize * (stat.blocks - stat.bfree),
+          percent: Math.round(((stat.blocks - stat.bfree) / stat.blocks) * 100)
+        };
+      }
+    } catch {
+      // fs.statfsSync not available, leave zeros
+    }
+
+    res.json({
+      hostname: os.hostname(),
+      platform: os.platform(),
+      arch: os.arch(),
+      uptimeSec,
+      cpuCount,
+      cpuUsage,
+      loadAvg: loadAvg.map(l => Math.round(l * 100) / 100),
+      memory: {
+        total: totalMem,
+        free: freeMem,
+        used: totalMem - freeMem,
+        percent: Math.round(((totalMem - freeMem) / totalMem) * 100)
+      },
+      disk: diskUsage
+    });
+  });
 
   app.get('/api/projects', (req, res) => {
     const enriched = projects.map(p => {
@@ -301,6 +368,12 @@ export function createApp(options = {}) {
           retryCount: 0
         };
       }
+      const stats = uptimeStats[p.name];
+      // Calculate current session uptime if running
+      let currentSessionSec = 0;
+      if (appState && appState.startedAt && (appState.status === 'running' || appState.status === 'starting')) {
+        currentSessionSec = Math.floor((Date.now() - new Date(appState.startedAt).getTime()) / 1000);
+      }
       return {
         ...p,
         isRunning: appState && appState.status === 'running',
@@ -308,7 +381,15 @@ export function createApp(options = {}) {
         currentPort: appState ? appState.port : null,
         lastError: appState ? appState.lastError : null,
         lastCrashTime: appState ? appState.lastCrashTime : null,
-        retryCount: appState ? appState.retryCount : 0
+        retryCount: appState ? appState.retryCount : 0,
+        startedAt: appState ? appState.startedAt : null,
+        uptime: stats ? {
+          totalSec: stats.totalUptimeSec + currentSessionSec,
+          currentSessionSec,
+          lastStarted: stats.lastStarted,
+          lastCrashed: stats.lastCrashed,
+          crashCount: stats.crashCount
+        } : null
       };
     });
     res.json(enriched);

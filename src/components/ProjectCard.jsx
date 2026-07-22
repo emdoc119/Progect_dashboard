@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal } from 'lucide-react';
+import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 const typeColors = {
@@ -26,6 +26,20 @@ const ProjectCard = ({ project }) => {
     if (!errString) return '';
     return errString.replace(/(password|secret|key|token)[=:]\s*([^\s]+)/gi, '$1=***');
   };
+
+  const formatUptime = (sec) => {
+    if (!sec || sec < 0) return null;
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm';
+    return '<1m';
+  };
+
+  const uptime = project.uptime;
+  const currentUptime = uptime ? formatUptime(uptime.currentSessionSec) : null;
 
   const handleStartClick = async (e) => {
     e.preventDefault();
@@ -173,6 +187,11 @@ const ProjectCard = ({ project }) => {
           {port && status === 'running' && (
             <div className="metric-item" style={{ marginRight: '8px', color: 'var(--text-muted)' }}>
               <Terminal size={14} /> Port: {port}
+            </div>
+          )}
+          {currentUptime && status === 'running' && (
+            <div className="metric-item" style={{ color: 'var(--text-muted)' }}>
+              <Clock size={14} /> {currentUptime}
             </div>
           )}
           <StatusBadge status={status} />

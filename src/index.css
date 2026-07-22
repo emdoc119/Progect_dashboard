@@ -504,3 +504,95 @@ html, body {
     height: 80vh;
   }
 }
+
+
+/* Sprint 2: System health bar */
+.system-bar {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+  backdrop-filter: blur(10px);
+}
+
+.system-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.system-hostname {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.system-uptime {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+.system-gauges {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.system-gauge {
+  flex: 1;
+  min-width: 0;
+}
+
+.gauge-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+}
+
+.gauge-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.gauge-value {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.gauge-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.gauge-detail {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+  .system-gauges {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .system-bar {
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+}

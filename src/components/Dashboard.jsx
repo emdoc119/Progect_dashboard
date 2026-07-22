@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import ProjectCard from './ProjectCard';
+import SystemBar from './SystemBar';
 
 const Dashboard = ({ projects, loading, error }) => {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -44,6 +45,8 @@ const Dashboard = ({ projects, loading, error }) => {
         <h1>emdoc119 Projects</h1>
         <p>An overview of all ongoing and active repositories</p>
       </header>
+
+      <SystemBar />
       
       <div className="stats-container">
         <div className="stat-box">
