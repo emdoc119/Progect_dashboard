@@ -356,6 +356,31 @@ export function createApp(options = {}) {
     });
   });
 
+  // Project logs endpoint (Sprint 3)
+  app.get('/api/projects/:name/logs', (req, res) => {
+    const { name } = req.params;
+    const lines = Math.min(parseInt(req.query.lines) || 100, 500);
+    const logFile = path.join(__dirname, `logs_${name}.txt`);
+
+    if (!fs.existsSync(logFile)) {
+      return res.json({ lines: [], totalLines: 0, message: 'No log file found' });
+    }
+
+    try {
+      const content = fs.readFileSync(logFile, 'utf8');
+      const allLines = content.split('\n').filter(l => l.length > 0);
+      const tailLines = allLines.slice(-lines);
+      return res.json({
+        lines: tailLines,
+        totalLines: allLines.length,
+        fileSize: fs.statSync(logFile).size,
+        lastModified: fs.statSync(logFile).mtime.toISOString()
+      });
+    } catch {
+      return res.status(500).json({ error: 'Failed to read log file' });
+    }
+  });
+
   app.get('/api/projects', (req, res) => {
     const enriched = projects.map(p => {
       const appState = runningApps[p.name];

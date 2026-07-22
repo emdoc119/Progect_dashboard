@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import ProjectCard from './ProjectCard';
 import SystemBar from './SystemBar';
+import LogDrawer from './LogDrawer';
 
 const Dashboard = ({ projects, loading, error }) => {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [logProject, setLogProject] = useState(null);
 
   const categories = useMemo(() => {
     const cats = new Set(projects.map(p => p.category || 'other'));
@@ -18,6 +20,10 @@ const Dashboard = ({ projects, loading, error }) => {
       .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [projects, activeCategory, searchQuery]);
+
+  const handleOpenLogs = useCallback((name) => {
+    setLogProject(name);
+  }, []);
 
   if (loading) {
     return (
@@ -88,7 +94,7 @@ const Dashboard = ({ projects, loading, error }) => {
 
       <div className="grid">
         {filteredProjects.map(project => (
-          <ProjectCard key={project.name} project={project} />
+          <ProjectCard key={project.name} project={project} onOpenLogs={handleOpenLogs} />
         ))}
         {filteredProjects.length === 0 && (
           <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '3rem' }}>
@@ -96,6 +102,12 @@ const Dashboard = ({ projects, loading, error }) => {
           </div>
         )}
       </div>
+
+      <LogDrawer
+        projectName={logProject}
+        isOpen={!!logProject}
+        onClose={() => setLogProject(null)}
+      />
     </div>
   );
 };

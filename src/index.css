@@ -596,3 +596,40 @@ html, body {
     margin-bottom: 1.5rem;
   }
 }
+
+
+/* Sprint 3: Log line highlighting */
+.log-line {
+  padding: 1px 0;
+  color: var(--text-muted);
+}
+
+.log-line.error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.log-line.warn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.log-line.info {
+  color: #38bdf8;
+}
+
+/* Improve log-drawer-content readability */
+.log-drawer-content {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Log drawer backdrop for mobile */
+@media (max-width: 768px) {
+  .log-drawer {
+    height: 85vh;
+  }
+  .log-drawer-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

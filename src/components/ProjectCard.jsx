@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock } from 'lucide-react';
+import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock, FileText } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 const typeColors = {
@@ -10,7 +10,7 @@ const typeColors = {
   'Default': '#8b949e'
 };
 
-const ProjectCard = ({ project }) => {
+const ProjectCard = ({ project, onOpenLogs }) => {
   const [deploying, setDeploying] = useState(false);
   const [stopping, setStopping] = useState(false);
   const typeColor = typeColors[project.type] || typeColors.Default;
@@ -193,6 +193,16 @@ const ProjectCard = ({ project }) => {
             <div className="metric-item" style={{ color: 'var(--text-muted)' }}>
               <Clock size={14} /> {currentUptime}
             </div>
+          )}
+          {project.type !== 'static-html' && (
+            <button
+              className="icon-btn"
+              onClick={(e) => { e.stopPropagation(); if (onOpenLogs) onOpenLogs(project.name); }}
+              title="View Logs"
+              style={{ width: 'auto', paddingLeft: '8px', paddingRight: '8px', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}
+            >
+              <FileText size={14} />
+            </button>
           )}
           <StatusBadge status={status} />
         </div>
