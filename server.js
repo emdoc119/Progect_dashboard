@@ -13,6 +13,27 @@ import os from 'os';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Telegram notification helper (Sprint 4)
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+async function sendTelegramMessage(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: 'Markdown'
+      })
+    });
+  } catch (e) {
+    console.error('[Telegram] Failed to send notification:', e.message);
+  }
+}
+
 // Mask sensitive data (P0-3)
 export function maskSecretData(str) {
   if (!str || typeof str !== 'string') return str;
@@ -240,6 +261,7 @@ export function createApp(options = {}) {
       if (runningApps[name] && runningApps[name].status === 'starting') {
         runningApps[name].status = 'running';
         runningApps[name].retryCount = 0; // reset on stable run
+        sendTelegramMessage(`✅ *${name}* is running and stable.`);
       }
     }, 60000);
 
@@ -285,10 +307,12 @@ export function createApp(options = {}) {
           if (runningApps[name].retryCount > 5) {
             console.error(`[Watchdog] ${name} crashed too many times. Giving up.`);
             runningApps[name].status = 'crashed';
+            sendTelegramMessage(`🚨 *${name}* gave up after ${runningApps[name].retryCount} crashes. Manual intervention required.`);
           } else {
             const delay = Math.min(5000 * Math.pow(2, runningApps[name].retryCount - 1), 60000);
             console.log(`[Watchdog] Restarting ${name} in ${delay}ms (Attempt ${runningApps[name].retryCount})...`);
             runningApps[name].status = 'backoff';
+            sendTelegramMessage(`⚠️ *${name}* crashed (exit code ${code}). Restarting in ${Math.round(delay/1000)}s (attempt ${runningApps[name].retryCount}/5)...`);
             runningApps[name].restartTimer = setTimeout(() => {
                if (runningApps[name] && runningApps[name].status === 'backoff') {
                  startProject(name, false).catch(e => console.error(`Watchdog restart failed for ${name}:`, e));
@@ -496,6 +520,7 @@ export function createApp(options = {}) {
   function startServer() {
     app.listen(PORT, HOST, () => {
       console.log(`Backend API Server running on http://${HOST}:${PORT}`);
+      sendTelegramMessage(`🖥️ *Progect Dashboard* started on ${HOST}:${PORT}`);
 
       if (AUTO_START_ENABLED) {
         setTimeout(() => {
