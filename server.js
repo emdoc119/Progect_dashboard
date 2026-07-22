@@ -138,7 +138,9 @@ export function createApp(options = {}) {
       if (!p.local_path) errors.push('missing "local_path"');
       if (!p.run_command) errors.push('missing "run_command"');
       if (p.exposure !== 'loopback') errors.push('"exposure" must be "loopback" for dynamic projects');
-      if (p.run_command && !p.run_command.includes('{host}')) {
+      // Docker Compose commands don't need {host} — containers bind internally
+      const isDockerCompose = p.run_command && p.run_command.includes('docker compose');
+      if (p.run_command && !p.run_command.includes('{host}') && !isDockerCompose) {
         errors.push('"run_command" must include {host} placeholder');
       }
       if (typeof p.always_on !== 'boolean') errors.push('"always_on" must be a boolean');
@@ -217,11 +219,14 @@ export function createApp(options = {}) {
       if (project.exposure !== 'loopback') {
         return { status: 400, message: 'Invalid exposure setting. Only loopback is permitted for dynamic apps.' };
       }
-      if (!commandStr.includes('{host}')) {
+      const isDockerCompose = commandStr.includes('docker compose');
+      if (!commandStr.includes('{host}') && !isDockerCompose) {
         return { status: 400, message: 'run_command must use {host} placeholder for security binding.' };
       }
-      commandStr = commandStr.replace(/{host}/g, '127.0.0.1');
-      commandStr = commandStr.replace(/{port}/g, port.toString());
+      if (!isDockerCompose) {
+        commandStr = commandStr.replace(/{host}/g, '127.0.0.1');
+        commandStr = commandStr.replace(/{port}/g, port.toString());
+      }
     }
 
     if (!fs.existsSync(project.local_path)) {

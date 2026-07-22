@@ -19,10 +19,12 @@
       "github_repo": "emdoc119/secretary_agent",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/secretary_agent/personal-agent-os",
       "entry_point": "src/main.py",
-      "run_command": "uv run uvicorn src.main:app --port {port} --host {host}",
-      "always_on": false,
+      "run_command": "docker compose up",
+      "always_on": true,
       "exposure": "loopback",
-      "status": "stopped"
+      "status": "stopped",
+      "stop_command": "docker compose down",
+      "notes": "Runs via Docker Compose in foreground. Includes PostgreSQL + Redis. Graceful degradation if DB fails."
     },
     {
       "name": "auto_paper_system",
