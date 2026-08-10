@@ -5,6 +5,8 @@ const StatusBadge = ({ status }) => {
     switch (status) {
       case 'running':
       case 'deployed':
+      case 'healthy':
+      case 'remote':
         return {
           bg: 'rgba(34, 197, 94, 0.15)',
           color: '#22c55e',

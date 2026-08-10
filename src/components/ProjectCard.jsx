@@ -21,6 +21,7 @@ const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
   const retryCount = project.retryCount || 0;
   const health = project.health || {};
   const healthStatus = health.status || 'unknown';
+  const canStop = Boolean(project.managed);
 
   const maskError = (errString) => {
     if (!errString) return '';
@@ -98,7 +99,7 @@ const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
   const handleStopClick = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (stopping || (status !== 'running' && status !== 'deployed' && status !== 'backoff' && status !== 'crashed')) return;
+    if (!canStop || stopping || (status !== 'running' && status !== 'deployed' && status !== 'backoff' && status !== 'crashed')) return;
 
     setStopping(true);
     try {
@@ -157,9 +158,11 @@ const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
             </div>
           ) : isRunning ? (
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="icon-btn stop-btn" onClick={handleStopClick} title="Stop App">
-                {stopping ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} color="#ef4444" fill="#ef4444" />}
-              </button>
+              {canStop && (
+                <button className="icon-btn stop-btn" onClick={handleStopClick} title="Stop App">
+                  {stopping ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} color="#ef4444" fill="#ef4444" />}
+                </button>
+              )}
               <button className="icon-btn" onClick={handleStartClick} title="Open App">
                 <ExternalLink size={16} color="#22c55e" />
               </button>
