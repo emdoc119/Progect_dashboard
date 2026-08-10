@@ -1,6 +1,6 @@
 # Progect Dashboard — 현재 상태
 
-기준일: 2026-08-10
+기준일: 2026-08-11
 공식 로컬 경로: `/Users/choo/.gemini/antigravity/scratch/Progect_dashboard`
 GitHub: `emdoc119/Progect_dashboard`
 
@@ -12,6 +12,9 @@ GitHub: `emdoc119/Progect_dashboard`
 - Tailscale Serve: HTTPS 443 → `127.0.0.1:3001`
 - 별도 Next.js 서비스: HTTPS 8443 → `127.0.0.1:3000`
 - 외부 접근: Basic Auth 필요, tailnet 기기에서 휴대폰 접속 가능
+- Dashboard PM2: `com.emdoc.progect-dashboard-pm2` launchd 사용자 에이전트가 로그인 시 `pm2 resurrect`
+- Next.js: 기존 `com.choo.macro-dashboard` launchd 사용자 에이전트가 로그인 시 시작·KeepAlive
+- secretary_agent API: Docker Compose `127.0.0.1:8000` loopback bind
 
 ## 프로젝트 상태 표시 기준
 
@@ -44,14 +47,15 @@ GitHub: `emdoc119/Progect_dashboard`
 
 ## 알려진 제한
 
-- `secretary_agent`는 현재 로컬 health가 실패할 수 있으며 Docker Compose 실행 여부를 별도로 확인해야 한다.
+- `secretary_agent`의 `/api/health`와 호환 `/health`가 정상 응답하며, Docker Compose API는 현재 healthy다.
 - 외부 경로가 구성되지 않은 로컬 서비스는 카드에 `External address not configured`로 표시한다.
+- secretary_agent 포트 8000은 외부 Tailscale/LAN 인터페이스에 직접 공개하지 않는다. 외부 UI가 필요하면 인증된 reverse proxy를 별도로 설계해야 한다.
 - `/api/projects` health 검증은 등록된 URL만 확인한다. URL이 없는 정적 앱은 `unknown`이다.
 - 전체 Node 테스트 중 포트 바인딩 테스트는 Codex 샌드박스의 `listen EPERM` 때문에 실행할 수 없다.
 
 ## 다음 우선순위
 
-1. Mac Mini에서 Docker Compose로 `secretary_agent` health 복구
-2. secretary_agent의 별도 Tailscale reverse-proxy 경로와 서비스 인증 검토
-3. PM2/launchd 부팅 자동 시작 검증
-4. 대시보드와 다른 로컬 앱의 Tailscale 경로 추가
+1. secretary_agent 외부 UI가 필요할 때 Dashboard Basic Auth 연계 reverse proxy 설계
+2. Mac Mini 자동 로그인/launchd 복구 절차를 실제 재부팅으로 한 차례 검증
+3. auto_paper_system을 GitHub Pages/Cloudflare Pages로 분리 배포할지 결정
+4. assetstyle_stock_dashboard는 Next.js 런타임 배포(Vercel 등) 가능성을 별도 검토

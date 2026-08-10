@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.emdoc.progect-dashboard-pm2</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/choo/.gemini/antigravity/scratch/Progect_dashboard/node_modules/.bin/pm2</string>
+    <string>resurrect</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/choo/.gemini/antigravity/scratch/Progect_dashboard</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/choo</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PM2_HOME</key>
+    <string>/Users/choo/.pm2</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/tmp/progect-dashboard-pm2.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/progect-dashboard-pm2-error.log</string>
+</dict>
+</plist>
