@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Play, Square, ExternalLink, GitBranch, Folder, Terminal, Clock, FileText, AlertCircle, Bookmark, Plus, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, Square, ExternalLink, GitBranch, Folder, Terminal, Clock, FileText, AlertCircle, Bookmark, Plus, Loader2, Server } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import LogDrawer from './LogDrawer';
 
@@ -26,6 +26,9 @@ const ProjectDetail = ({ project, onBack, onOpenLogs, onRefresh }) => {
   const isRunning = project.isRunning;
   const port = project.currentPort;
   const status = project.status;
+  const accessLinks = Array.isArray(project.accessLinks)
+    ? project.accessLinks
+    : (project.accessUrl ? [{ label: 'Open', url: project.accessUrl, kind: 'external' }] : []);
 
   const formatUptime = (sec) => {
     if (!sec || sec < 0) return '0s';
@@ -175,6 +178,9 @@ const ProjectDetail = ({ project, onBack, onOpenLogs, onRefresh }) => {
           <span className="badge exposure-badge">
             {project.always_on ? 'Always On (Watchdog Enabled)' : 'On Demand'}
           </span>
+          <span className="badge server-type-badge">
+            <Server size={13} /> {project.serverType || project.type}
+          </span>
         </div>
       </div>
 
@@ -185,6 +191,14 @@ const ProjectDetail = ({ project, onBack, onOpenLogs, onRefresh }) => {
             <div className="info-item">
               <span className="info-label">Status</span>
               <span className="info-value" style={{ textTransform: 'capitalize' }}>{status}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label"><Server size={14} /> Server type</span>
+              <span className="info-value">{project.serverType || project.type}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Runtime host</span>
+              <span className="info-value">{project.runtimeHost || 'Unknown host'}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Active Port</span>
@@ -263,10 +277,13 @@ const ProjectDetail = ({ project, onBack, onOpenLogs, onRefresh }) => {
                 <GitBranch size={14} /> GitHub Repository <ExternalLink size={12} />
               </a>
             )}
-            {project.access_url && (
-              <a href={project.access_url} target="_blank" rel="noopener noreferrer" className="quick-link-chip-btn">
-                <ExternalLink size={14} /> Live Access URL <ExternalLink size={12} />
+            {accessLinks.map((link) => (
+              <a key={`${link.label}-${link.url}`} href={link.url} target="_blank" rel="noopener noreferrer" className="quick-link-chip-btn">
+                <ExternalLink size={14} /> {link.label} <ExternalLink size={12} />
               </a>
+            ))}
+            {accessLinks.length === 0 && (
+              <span className="project-access-empty">External address not configured</span>
             )}
             {project.quick_links && project.quick_links.map((link, idx) => (
               <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="quick-link-chip-btn">

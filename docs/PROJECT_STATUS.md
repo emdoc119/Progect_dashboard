@@ -31,12 +31,12 @@ GitHub: `emdoc119/Progect_dashboard`
 | auto_paper_system | Static HTML | Mac Mini | `/apps/...` 정적 링크 |
 | auto_ER_schedule | GitHub Pages · Static HTML | GitHub Pages | 외부 링크 |
 | assetstyle_stock_dashboard | Node.js · Next.js | Mac Mini:3000 | health/외부 링크 |
-| Stock-checklist | Python · Streamlit | Mac Mini:8501 예정 | 실행·health |
 
 ## 구현된 기능
 
 - `/api/system`에 Tailscale IP, Serve route, 대시보드 접근 URL과 바인딩 정보 표시
-- `/api/projects`에 `serverType`, `runtimeHost`, `accessUrl`, `health` 정보 표시
+- `/api/projects`에 `serverType`, `runtimeHost`, `accessUrl`, `accessLinks`, `health` 정보 표시
+- 프로젝트 카드와 상세 화면에서 접속 방식(`Tailscale`, `GitHub Pages`, `Naver Cloud`)을 라벨로 표시하고 클릭 가능하게 제공
 - 원격 서비스 start/stop 차단 및 read-only 모니터링
 - 등록된 health URL을 5초 캐시로 확인
 - 프로젝트 카드에 서버 종류, 운영 호스트, health 상태와 외부 링크 표시
@@ -45,13 +45,13 @@ GitHub: `emdoc119/Progect_dashboard`
 ## 알려진 제한
 
 - `secretary_agent`는 현재 로컬 health가 실패할 수 있으며 Docker Compose 실행 여부를 별도로 확인해야 한다.
-- `Stock-checklist`는 실제 venv와 진입점 복구 전까지 unhealthy 상태가 정상이다.
+- 외부 경로가 구성되지 않은 로컬 서비스는 카드에 `External address not configured`로 표시한다.
 - `/api/projects` health 검증은 등록된 URL만 확인한다. URL이 없는 정적 앱은 `unknown`이다.
 - 전체 Node 테스트 중 포트 바인딩 테스트는 Codex 샌드박스의 `listen EPERM` 때문에 실행할 수 없다.
 
 ## 다음 우선순위
 
 1. Mac Mini에서 Docker Compose로 `secretary_agent` health 복구
-2. `Stock-checklist` 실행 경로와 fixed port 8501 검증
+2. secretary_agent의 별도 Tailscale reverse-proxy 경로와 서비스 인증 검토
 3. PM2/launchd 부팅 자동 시작 검증
 4. 대시보드와 다른 로컬 앱의 Tailscale 경로 추가

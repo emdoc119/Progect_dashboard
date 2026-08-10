@@ -61,8 +61,8 @@ describe('Phase D: startProject Route Tests', () => {
   });
 
   it('should return 400 for static-html project without access_url or entry_point', async () => {
-    // auto_paper_system has access_url set to github repo, so it will return 200
-    // This test verifies the path works; the project has an access_url
+    // auto_paper_system has a local entry_point, so the dashboard serves it
+    // through its /apps path.
     const res = await request(server, '/api/projects/auto_paper_system/start', { method: 'POST' });
     assert.strictEqual(res.statusCode, 200);
   });
@@ -78,6 +78,9 @@ describe('Phase D: startProject Route Tests', () => {
     const project = data[0];
     assert.ok('name' in project, 'Project should have name');
     assert.ok('isRunning' in project || 'status' in project, 'Project should have status info');
+    assert.ok('serverType' in project, 'Project should expose server type');
+    assert.ok(Array.isArray(project.accessLinks), 'Project should expose access links');
+    assert.ok(!data.some(p => p.name === 'Stock-checklist'), 'Retired Stock-checklist must not be registered');
   });
 
   it('should return deployed status for static-html project with deployed status', async () => {

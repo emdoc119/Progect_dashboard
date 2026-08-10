@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock, FileText, Info, Activity, Server } from 'lucide-react';
+import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock, FileText, Info, Activity, Server, Link as LinkIcon } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 const typeColors = {
@@ -22,6 +22,9 @@ const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
   const health = project.health || {};
   const healthStatus = health.status || 'unknown';
   const canStop = Boolean(project.managed);
+  const accessLinks = Array.isArray(project.accessLinks)
+    ? project.accessLinks
+    : (project.accessUrl ? [{ label: 'Open', url: project.accessUrl, kind: 'external' }] : []);
 
   const maskError = (errString) => {
     if (!errString) return '';
@@ -183,23 +186,34 @@ const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
       </div>
 
       <p className="project-desc">
-        {project.category ? project.category.toUpperCase() : 'OTHER'} • {project.serverType || project.type} • {project.runtimeHost || 'Unknown host'}
+        {project.category ? project.category.toUpperCase() : 'OTHER'} • {project.runtimeHost || 'Unknown host'}
       </p>
 
       <div className="project-runtime-row">
-        <span className="runtime-chip"><Server size={12} /> {project.serverType || project.type}</span>
+        <span className="runtime-chip"><Server size={12} /> <span className="runtime-chip-label">Server type</span> {project.serverType || project.type}</span>
         <span className={`health-chip ${healthStatus}`}><Activity size={12} /> {healthStatus}</span>
-        {project.accessUrl && (
-          <a
-            href={project.accessUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="runtime-link"
-            onClick={(e) => e.stopPropagation()}
-            title="Open service URL"
-          >
-            <ExternalLink size={12} /> Open
-          </a>
+      </div>
+
+      <div className="project-access-row">
+        <span className="project-access-label"><LinkIcon size={12} /> Access</span>
+        {accessLinks.length > 0 ? (
+          <div className="project-access-links">
+            {accessLinks.map((link) => (
+              <a
+                key={`${link.label}-${link.url}`}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`project-access-link ${link.kind === 'tailscale' ? 'tailscale-link' : ''}`}
+                onClick={(e) => e.stopPropagation()}
+                title={link.url}
+              >
+                <ExternalLink size={12} /> {link.label}
+              </a>
+            ))}
+          </div>
+        ) : (
+          <span className="project-access-empty">External address not configured</span>
         )}
       </div>
 

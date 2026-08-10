@@ -245,6 +245,57 @@ export function createApp(options = {}) {
     };
   }
 
+  function resolveAccessUrl(value, accessInfo) {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+    // Relative static paths are reachable through the dashboard's Tailscale
+    // Serve route when it is configured. Keep the relative path as a local
+    // fallback so the card still works on localhost.
+    if (accessInfo?.serveUrl) {
+      try {
+        return new URL(trimmed.replace(/^\//, ''), `${accessInfo.serveUrl}/`).toString();
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  }
+
+  function inferAccessLabel(project, url) {
+    if (project.access_label) return project.access_label;
+    const normalized = String(url || '').toLowerCase();
+    if (normalized.includes('tail')) return 'Tailscale';
+    if (normalized.includes('github.io')) return 'GitHub Pages';
+    return project.runtime === 'remote' ? 'Remote' : 'Open';
+  }
+
+  function buildAccessLinks(project, accessInfo) {
+    const candidates = [];
+    const primary = project.public_url || project.access_url || project.public_path;
+    if (primary) candidates.push({ url: primary, label: project.access_label });
+    if (Array.isArray(project.access_links)) {
+      candidates.push(...project.access_links);
+    }
+
+    const links = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+      const url = resolveAccessUrl(candidate?.url, accessInfo);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      const label = candidate?.label || inferAccessLabel(project, url);
+      links.push({
+        label,
+        url,
+        kind: label.toLowerCase() === 'tailscale' ? 'tailscale' : 'external'
+      });
+    }
+    return links;
+  }
+
   async function probeHealth(project, appState) {
     const configuredUrl = project.health_url || project.healthUrl;
     if (!configuredUrl) {
@@ -576,6 +627,7 @@ export function createApp(options = {}) {
   });
 
   app.get('/api/projects', async (req, res) => {
+    const accessInfo = await getAccessInfo();
     const enriched = await Promise.all(projects.map(async (p) => {
       const appState = runningApps[p.name];
       const stats = uptimeStats[p.name];
@@ -589,11 +641,14 @@ export function createApp(options = {}) {
         currentSessionSec = Math.floor((Date.now() - new Date(appState.startedAt).getTime()) / 1000);
       }
 
+      const accessLinks = buildAccessLinks(p, accessInfo);
+
       return {
         ...p,
         serverType: p.server_type || p.type,
         runtimeHost: p.runtime_host || (isRemote ? 'Remote server' : 'Mac Mini'),
-        accessUrl: p.public_url || p.access_url || p.public_path || null,
+        accessUrl: accessLinks[0]?.url || null,
+        accessLinks,
         isRemote,
         managed: Boolean(appState),
         isRunning: isRemote ? health.status === 'healthy' : (isStaticDeployed || appState?.status === 'running' || health.status === 'healthy'),

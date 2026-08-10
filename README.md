@@ -68,7 +68,7 @@ Projects with `"always_on": true` automatically restart on crash with exponentia
 ### Loopback Security
 All dynamic sub-apps are bound to `127.0.0.1` by default. The `{host}` placeholder in `run_command` is replaced with `127.0.0.1` at runtime. Projects without `"exposure": "loopback"` are rejected.
 
-> **Remote access**: When using the dashboard remotely (via Tailscale), you can view status and start/stop projects, but **cannot directly open sub-app UIs** since they are bound to loopback. A reverse proxy is required for remote sub-app access (not implemented).
+> **Remote access**: When using the dashboard remotely (via Tailscale), project cards show only configured external links. Tailscale links are labelled and clickable; local services without a dedicated reverse-proxy route are shown as `External address not configured`. Loopback services are not exposed implicitly.
 
 ### Log Rotation
 Process logs are written to `logs_<name>.txt` with automatic rotation:
