@@ -63,9 +63,9 @@
       "github_repo": "emdoc119/auto_ER_schedule",
       "local_path": "/Users/choo/.gemini/antigravity/scratch/auto_ER_schedule_repo",
       "entry_point": "aer_dashboard.html",
-      "access_url": "https://emdoc119.github.io/auto_ER_schedule/",
+      "access_url": "https://emdoc119.github.io/auto_ER_schedule/aer_dashboard.html",
       "access_label": "GitHub Pages",
-      "github_pages_url": "https://emdoc119.github.io/auto_ER_schedule/",
+      "github_pages_url": "https://emdoc119.github.io/auto_ER_schedule/aer_dashboard.html",
       "run_command": "",
       "always_on": false,
       "status": "deployed"
