@@ -24,6 +24,10 @@ dist-ssr
 *.sw?
 apps/
 
+# Local process-manager state and rotated runtime logs
+.pm2/
+*-logs_*.txt
+
 .env
 .env.*
 !.env.example

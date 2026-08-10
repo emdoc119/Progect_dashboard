@@ -23,7 +23,7 @@ describe('Phase D: Watchdog and ProcessManager State Tests', () => {
       autoStart: false
     });
 
-    const dynamicProjects = projects.filter(p => p.type !== 'static-html');
+    const dynamicProjects = projects.filter(p => p.type !== 'static-html' && p.runtime !== 'remote' && p.service_kind !== 'remote');
     for (const p of dynamicProjects) {
       assert.strictEqual(p.exposure, 'loopback',
         `${p.name} should have exposure set to loopback`);

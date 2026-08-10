@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock, FileText } from 'lucide-react';
+import { ExternalLink, BookOpen, Loader2, Play, Square, AlertCircle, Terminal, Clock, FileText, Info, Activity, Server } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
 const typeColors = {
@@ -10,18 +10,18 @@ const typeColors = {
   'Default': '#8b949e'
 };
 
-const ProjectCard = ({ project, onOpenLogs }) => {
+const ProjectCard = ({ project, onOpenLogs, onSelectProject }) => {
   const [deploying, setDeploying] = useState(false);
   const [stopping, setStopping] = useState(false);
   const typeColor = typeColors[project.type] || typeColors.Default;
-  
-  // Rely exclusively on props from the backend polling
+
   const isRunning = project.isRunning;
   const port = project.currentPort;
-  const status = project.status; // stopped, starting, running, crashed, backoff, stopping, deployed
+  const status = project.status;
   const retryCount = project.retryCount || 0;
+  const health = project.health || {};
+  const healthStatus = health.status || 'unknown';
 
-  // Mask secrets in error messages safely (basic redaction for common secret formats if any, or just show brief error)
   const maskError = (errString) => {
     if (!errString) return '';
     return errString.replace(/(password|secret|key|token)[=:]\s*([^\s]+)/gi, '$1=***');
@@ -44,11 +44,15 @@ const ProjectCard = ({ project, onOpenLogs }) => {
   const handleStartClick = async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (deploying) return;
-    
+
+    if (project.isRemote && project.accessUrl) {
+      window.open(project.accessUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     if (isRunning) {
-      // Security check: restrict opening sub-apps directly from non-local connections (P0-2)
       const hostname = window.location.hostname;
       if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '::1') {
         alert('Remote Connection Detected: Direct access to sub-apps is restricted to local connections for security.');
@@ -62,13 +66,13 @@ const ProjectCard = ({ project, onOpenLogs }) => {
       }
       return;
     }
-    
+
     setDeploying(true);
     try {
       const response = await fetch(`/api/projects/${project.name}/start`, {
         method: 'POST'
       });
-      
+
       const data = await response.json();
       if (data.success) {
         let finalUrl = data.url;
@@ -107,24 +111,38 @@ const ProjectCard = ({ project, onOpenLogs }) => {
       setStopping(false);
     }
   };
-  
+
+  const handleCardClick = () => {
+    if (onSelectProject) {
+      onSelectProject(project.name);
+    }
+  };
+
   const getStatusColor = () => {
     if (status === 'running' || status === 'deployed') return '#22c55e';
     if (status === 'crashed') return '#ef4444';
     if (status === 'backoff') return '#f59e0b';
     if (status === 'starting' || status === 'stopping') return 'var(--accent)';
-    return 'inherit'; // stopped
+    return 'inherit';
   };
 
   return (
-    <div className={`project-card ${isRunning ? 'running' : ''} ${status === 'crashed' ? 'crashed-card' : ''}`} onClick={handleStartClick}>
+    <div className={`project-card ${isRunning ? 'running' : ''} ${status === 'crashed' ? 'crashed-card' : ''}`} onClick={handleCardClick}>
       <div className="project-header">
-        <div className="project-title" style={{ color: "var(--text-main)" }}>
+        <div className="project-title" style={{ color: "var(--text-main)" }} onClick={(e) => { e.stopPropagation(); handleCardClick(); }}>
           <BookOpen size={20} color={getStatusColor()} />
           {project.name}
         </div>
-        
+
         <div className="project-actions" onClick={e => e.stopPropagation()}>
+          <button
+            className="icon-btn"
+            onClick={handleCardClick}
+            title="Project Details"
+          >
+            <Info size={16} color="var(--accent)" />
+          </button>
+
           {(deploying || status === 'starting' || status === 'stopping') ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--accent)' }}>
               <Loader2 size={16} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
@@ -160,10 +178,27 @@ const ProjectCard = ({ project, onOpenLogs }) => {
           )}
         </div>
       </div>
-      
+
       <p className="project-desc">
-        {project.category ? project.category.toUpperCase() : 'OTHER'} • {project.always_on ? 'Always On' : 'On Demand'}
+        {project.category ? project.category.toUpperCase() : 'OTHER'} • {project.serverType || project.type} • {project.runtimeHost || 'Unknown host'}
       </p>
+
+      <div className="project-runtime-row">
+        <span className="runtime-chip"><Server size={12} /> {project.serverType || project.type}</span>
+        <span className={`health-chip ${healthStatus}`}><Activity size={12} /> {healthStatus}</span>
+        {project.accessUrl && (
+          <a
+            href={project.accessUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="runtime-link"
+            onClick={(e) => e.stopPropagation()}
+            title="Open service URL"
+          >
+            <ExternalLink size={12} /> Open
+          </a>
+        )}
+      </div>
 
       {project.lastError && (
         <div style={{ marginTop: '8px', padding: '6px', backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: '4px', fontSize: '12px', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -176,13 +211,13 @@ const ProjectCard = ({ project, onOpenLogs }) => {
           </div>
         </div>
       )}
-      
+
       <div className="project-footer" style={{ marginTop: project.lastError ? '8px' : 'auto' }}>
         <div className="lang-badge">
           <span className="lang-dot" style={{ backgroundColor: typeColor }}></span>
           {project.type}
         </div>
-        
+
         <div className="metrics" style={{ alignItems: 'center' }}>
           {port && status === 'running' && (
             <div className="metric-item" style={{ marginRight: '8px', color: 'var(--text-muted)' }}>

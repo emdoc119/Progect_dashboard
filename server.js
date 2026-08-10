@@ -5,13 +5,56 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import checkPort from 'tcp-port-used';
 import { createStream } from 'rotating-file-stream';
 import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function getTailscaleIpv4() {
+  const interfaces = os.networkInterfaces();
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries || []) {
+      if (entry.family === 'IPv4' && /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(entry.address)) {
+        return entry.address;
+      }
+    }
+  }
+  return null;
+}
+
+let tailscaleServeCache = { checkedAt: 0, routes: [], configured: false };
+
+function readTailscaleServe() {
+  const now = Date.now();
+  if (now - tailscaleServeCache.checkedAt < 30000) return Promise.resolve(tailscaleServeCache);
+
+  return new Promise((resolve) => {
+    execFile('tailscale', ['serve', 'status', '--json'], { timeout: 2500 }, (error, stdout) => {
+      if (error) {
+        tailscaleServeCache = { checkedAt: now, routes: [], configured: false };
+        return resolve(tailscaleServeCache);
+      }
+
+      try {
+        const config = JSON.parse(stdout);
+        const routes = Object.entries(config.Web || {}).flatMap(([host, value]) =>
+          Object.entries(value.Handlers || {}).map(([route, handler]) => ({
+            host,
+            route,
+            proxy: handler.Proxy || null
+          }))
+        );
+        tailscaleServeCache = { checkedAt: now, routes, configured: routes.length > 0 };
+      } catch {
+        tailscaleServeCache = { checkedAt: now, routes: [], configured: false };
+      }
+      resolve(tailscaleServeCache);
+    });
+  });
+}
 
 // Telegram notification helper (Sprint 4)
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -62,8 +105,8 @@ export function createApp(options = {}) {
   const HOST = options.host ?? (process.env.DASHBOARD_ALLOW_LAN === 'true' ? '0.0.0.0' : (process.env.DASHBOARD_HOST || '127.0.0.1'));
   const PORT = options.port ?? (process.env.DASHBOARD_PORT || 3001);
   const AUTO_START_ENABLED = options.autoStart ?? (process.env.DASHBOARD_AUTOSTART !== 'false');
-  const authUsername = options.authUsername ?? process.env.DASHBOARD_AUTH_USERNAME;
-  const authPassword = options.authPassword ?? process.env.DASHBOARD_AUTH_PASSWORD;
+  const authUsername = options.authUsername !== undefined ? options.authUsername : process.env.DASHBOARD_AUTH_USERNAME;
+  const authPassword = options.authPassword !== undefined ? options.authPassword : process.env.DASHBOARD_AUTH_PASSWORD;
 
   // External bind safety check
   if (HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
@@ -128,6 +171,19 @@ export function createApp(options = {}) {
     if (!p.name || typeof p.name !== 'string') errors.push('missing or invalid "name"');
     if (!p.type || typeof p.type !== 'string') errors.push('missing or invalid "type"');
 
+    const isRemote = p.runtime === 'remote' || p.service_kind === 'remote';
+    if (isRemote) {
+      if (!p.access_url && !p.health_url) errors.push('remote project must have "access_url" or "health_url"');
+      if (typeof p.always_on !== 'boolean') errors.push('"always_on" must be a boolean');
+      if (errors.length > 0) {
+        const msg = `[Registry] Project "${p.name || '(unnamed)'}" has schema errors: ${errors.join('; ')}`;
+        console.warn(msg);
+        validationErrors.push(msg);
+        return false;
+      }
+      return true;
+    }
+
     if (p.type === 'static-html') {
       // Static projects need at least one of access_url or entry_point
       if (!p.access_url && !p.entry_point) {
@@ -158,14 +214,95 @@ export function createApp(options = {}) {
   const runningApps = {};
   const uptimeStats = {};
   let nextAppPort = 4000;
+  const healthCache = new Map();
 
-  async function findAvailablePort(startPort) {
-    let port = startPort;
-    while (await checkPort.check(port, '127.0.0.1')) {
-      port++;
-    }
-    return port;
+  function getPublicDashboardUrl() {
+    const configured = process.env.DASHBOARD_PUBLIC_URL?.trim();
+    if (configured) return configured.replace(/\/$/, '');
+    const tailscaleIp = getTailscaleIpv4();
+    return tailscaleIp ? `http://${tailscaleIp}:${PORT}` : `http://127.0.0.1:${PORT}`;
   }
+
+  async function getAccessInfo() {
+    const tailscaleIp = getTailscaleIpv4();
+    const serve = await readTailscaleServe();
+    const dashboardProxy = serve.routes.find(route => route.proxy?.endsWith(`:${PORT}`)) || null;
+    const configuredUrl = process.env.DASHBOARD_PUBLIC_URL?.trim()?.replace(/\/$/, '');
+    const serveUrl = dashboardProxy
+      ? `https://${dashboardProxy.host.replace(/:443$/, '')}${dashboardProxy.route === '/' ? '' : dashboardProxy.route}`
+      : null;
+
+    return {
+      bindHost: HOST,
+      port: Number(PORT),
+      tailscaleIp,
+      dashboardUrl: getPublicDashboardUrl(),
+      tailscaleUrl: configuredUrl || (tailscaleIp ? `http://${tailscaleIp}:${PORT}` : null),
+      serveConfigured: serve.configured,
+      dashboardProxy,
+      serveUrl,
+      serveRoutes: serve.routes
+    };
+  }
+
+  async function probeHealth(project, appState) {
+    const configuredUrl = project.health_url || project.healthUrl;
+    if (!configuredUrl) {
+      return { status: 'unknown', url: null, checkedAt: null, latencyMs: null, detail: 'No health URL configured' };
+    }
+
+    const port = appState?.port || project.fixed_port || project.port;
+    const target = configuredUrl
+      .replaceAll('{port}', String(port || ''))
+      .replaceAll('{host}', '127.0.0.1');
+    const cacheKey = `${project.name}:${target}`;
+    const now = Date.now();
+    const cached = healthCache.get(cacheKey);
+    if (cached && now - cached.checkedAt < 5000) return cached;
+
+    const started = Date.now();
+    try {
+      const response = await fetch(target, { signal: AbortSignal.timeout(2500), redirect: 'manual' });
+      const result = {
+        status: response.ok ? 'healthy' : 'unhealthy',
+        url: target,
+        checkedAt: new Date().toISOString(),
+        latencyMs: Date.now() - started,
+        httpStatus: response.status,
+        detail: response.ok ? 'Health check passed' : `HTTP ${response.status}`
+      };
+      healthCache.set(cacheKey, { ...result, checkedAt: now });
+      return result;
+    } catch (err) {
+      const result = {
+        status: 'unhealthy',
+        url: target,
+        checkedAt: new Date().toISOString(),
+        latencyMs: Date.now() - started,
+        httpStatus: null,
+        detail: maskSecretData(err.message)
+      };
+      healthCache.set(cacheKey, { ...result, checkedAt: now });
+      return result;
+    }
+  }
+
+ async function findAvailablePort(startPort) {
+   let port = startPort;
+    try {
+      while (await checkPort.check(port, '127.0.0.1')) {
+        port++;
+      }
+      return port;
+    } catch (err) {
+      if (err.code === 'EPERM' || (err.message && err.message.includes('EPERM'))) {
+        const epermErr = new Error(`Port check failed with EPERM: ${err.message}`);
+        epermErr.code = 'EPERM';
+        throw epermErr;
+      }
+      throw err;
+    }
+ }
 
   // Log rotation utility using rotating-file-stream
   function getLogStream(name) {
@@ -180,6 +317,14 @@ export function createApp(options = {}) {
   async function startProject(name, manual = false) {
     const project = projects.find(p => p.name === name);
     if (!project) return { status: 404, message: 'Project not found' };
+
+    if (project.runtime === 'remote' || project.service_kind === 'remote') {
+      return {
+        status: 409,
+        message: 'This is a remote service. The dashboard can monitor it but cannot start or stop it here.',
+        url: project.access_url || project.health_url || null
+      };
+    }
 
     if (project.type === 'static-html') {
       if (project.access_url) {
@@ -204,16 +349,35 @@ export function createApp(options = {}) {
     }
 
     // Reset retry count on manual start
-    if (manual && runningApps[name]) {
-      runningApps[name].retryCount = 0;
-      if (runningApps[name].restartTimer) {
-        clearTimeout(runningApps[name].restartTimer);
-        runningApps[name].restartTimer = null;
-      }
-    }
+   if (manual && runningApps[name]) {
+     runningApps[name].retryCount = 0;
+     if (runningApps[name].restartTimer) {
+       clearTimeout(runningApps[name].restartTimer);
+       runningApps[name].restartTimer = null;
+     }
+   }
 
-    const port = await findAvailablePort(nextAppPort++);
-    let commandStr = project.run_command;
+    let port;
+    try {
+      if (project.fixed_port || project.port) {
+        port = Number(project.fixed_port || project.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          return { status: 400, error: `Invalid fixed port for project: ${port}` };
+        }
+        if (await checkPort.check(port, '127.0.0.1')) {
+          return { status: 409, error: `Fixed port ${port} is already in use` };
+        }
+      } else {
+        port = await findAvailablePort(nextAppPort++);
+      }
+    } catch (err) {
+      if (err.code === 'EPERM' || (err.message && err.message.includes('EPERM'))) {
+        console.warn(`[ProcessManager] Skipping project "${name}" start due to port check EPERM in sandbox environment.`);
+        return { status: 500, error: `Port check failed due to sandbox restriction (EPERM): ${err.message}` };
+      }
+      return { status: 500, error: `Failed to find available port: ${err.message}` };
+    }
+   let commandStr = project.run_command;
 
     if (project.type !== 'static-html') {
       if (project.exposure !== 'loopback') {
@@ -340,7 +504,7 @@ export function createApp(options = {}) {
   }
 
   // System health endpoint (Sprint 2)
-  app.get('/api/system', (req, res) => {
+  app.get('/api/system', async (req, res) => {
     const cpus = os.cpus();
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
@@ -381,7 +545,8 @@ export function createApp(options = {}) {
         used: totalMem - freeMem,
         percent: Math.round(((totalMem - freeMem) / totalMem) * 100)
       },
-      disk: diskUsage
+      disk: diskUsage,
+      access: await getAccessInfo()
     });
   });
 
@@ -410,33 +575,34 @@ export function createApp(options = {}) {
     }
   });
 
-  app.get('/api/projects', (req, res) => {
-    const enriched = projects.map(p => {
+  app.get('/api/projects', async (req, res) => {
+    const enriched = await Promise.all(projects.map(async (p) => {
       const appState = runningApps[p.name];
-      if (p.type === 'static-html' && p.status === 'deployed') {
-        return {
-          ...p,
-          isRunning: true,
-          currentPort: null,
-          lastError: null,
-          retryCount: 0
-        };
-      }
       const stats = uptimeStats[p.name];
+      const isRemote = p.runtime === 'remote' || p.service_kind === 'remote';
+      const isStaticDeployed = p.type === 'static-html' && p.status === 'deployed';
+      const health = await probeHealth(p, appState);
+
       // Calculate current session uptime if running
       let currentSessionSec = 0;
       if (appState && appState.startedAt && (appState.status === 'running' || appState.status === 'starting')) {
         currentSessionSec = Math.floor((Date.now() - new Date(appState.startedAt).getTime()) / 1000);
       }
+
       return {
         ...p,
-        isRunning: appState && appState.status === 'running',
-        status: appState ? appState.status : 'stopped',
-        currentPort: appState ? appState.port : null,
+        serverType: p.server_type || p.type,
+        runtimeHost: p.runtime_host || (isRemote ? 'Remote server' : 'Mac Mini'),
+        accessUrl: p.public_url || p.access_url || p.public_path || null,
+        isRemote,
+        isRunning: isRemote ? health.status === 'healthy' : (isStaticDeployed || appState?.status === 'running'),
+        status: isRemote ? (health.status === 'healthy' ? 'remote' : 'unhealthy') : (isStaticDeployed ? 'deployed' : (appState ? appState.status : 'stopped')),
+        currentPort: appState ? appState.port : (p.fixed_port || p.port || null),
         lastError: appState ? appState.lastError : null,
         lastCrashTime: appState ? appState.lastCrashTime : null,
         retryCount: appState ? appState.retryCount : 0,
         startedAt: appState ? appState.startedAt : null,
+        health,
         uptime: stats ? {
           totalSec: stats.totalUptimeSec + currentSessionSec,
           currentSessionSec,
@@ -445,8 +611,154 @@ export function createApp(options = {}) {
           crashCount: stats.crashCount
         } : null
       };
-    });
+    }));
     res.json(enriched);
+  });
+
+  // Register new project endpoint (Sprint 6)
+  app.post("/api/projects", async (req, res) => {
+    try {
+      const {
+        name,
+        category = "other",
+        type,
+        github_repo,
+        local_path,
+        entry_point,
+        run_command,
+        always_on = false,
+        exposure = "loopback",
+        access_url,
+        notes,
+        quick_links = []
+      } = req.body;
+
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ error: "Project name is required" });
+      }
+
+      const trimmedName = name.trim();
+      if (projects.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
+        return res.status(400).json({ error: `Project with name "${trimmedName}" already exists` });
+      }
+
+      if (!type || typeof type !== "string") {
+        return res.status(400).json({ error: "Project type is required" });
+      }
+
+      const isStatic = type === "static-html";
+
+      if (isStatic) {
+        if (!access_url && !entry_point) {
+          return res.status(400).json({ error: "static-html project must have access_url or entry_point" });
+        }
+      } else {
+        if (!run_command) {
+          return res.status(400).json({ error: "run_command is required for dynamic projects" });
+        }
+        const isDockerCompose = run_command.includes("docker compose");
+        if (!run_command.includes("{host}") && !isDockerCompose) {
+          return res.status(400).json({ error: "run_command must include {host} placeholder" });
+        }
+      }
+
+      // Normalize GitHub Repo URL or name
+      let normalizedRepo = github_repo ? github_repo.trim() : "";
+      if (normalizedRepo) {
+        normalizedRepo = normalizedRepo
+          .replace(/^https?:\/\/github\.com\//i, "")
+          .replace(/^git@github\.com:/i, "")
+          .replace(/\.git$/i, "");
+      }
+
+      // Determine local path
+      let repoDirName = trimmedName;
+      if (normalizedRepo && normalizedRepo.includes("/")) {
+        repoDirName = normalizedRepo.split("/")[1] || trimmedName;
+      }
+      let finalLocalPath = local_path ? local_path.trim() : path.join("/Users/choo/.gemini/antigravity/scratch", repoDirName);
+
+      let cloneWarning = null;
+      if (normalizedRepo && !fs.existsSync(finalLocalPath)) {
+        try {
+          console.log(`[Registry] Cloning repo ${normalizedRepo} to ${finalLocalPath}...`);
+          const cloneUrl = `https://github.com/${normalizedRepo}.git`;
+          const cloneProc = spawn("git", ["clone", cloneUrl, finalLocalPath], { stdio: "pipe" });
+          await new Promise((resolve) => {
+            cloneProc.on("close", (code) => {
+              if (code !== 0) {
+                console.warn(`[Registry] Git clone exited with code ${code}`);
+                cloneWarning = `Git clone exited with code ${code}. Path: ${finalLocalPath}`;
+              } else {
+                console.log("[Registry] Git clone completed successfully.");
+              }
+              resolve();
+            });
+            cloneProc.on("error", (err) => {
+              console.warn(`[Registry] Git clone error: ${err.message}`);
+              cloneWarning = `Git clone error: ${err.message}`;
+              resolve();
+            });
+          });
+        } catch (e) {
+          cloneWarning = `Git clone failed: ${e.message}`;
+        }
+      }
+
+      const newProject = {
+        name: trimmedName,
+        category: category ? category.trim() : "other",
+        type: type.trim(),
+        github_repo: normalizedRepo || undefined,
+        local_path: isStatic && !local_path ? undefined : finalLocalPath,
+        entry_point: entry_point ? entry_point.trim() : "",
+        run_command: run_command ? run_command.trim() : "",
+        always_on: Boolean(always_on),
+        exposure: isStatic ? undefined : exposure,
+        status: isStatic && access_url ? "deployed" : "stopped"
+      };
+
+      if (access_url) newProject.access_url = access_url.trim();
+      if (notes) newProject.notes = notes.trim();
+      if (Array.isArray(quick_links) && quick_links.length > 0) newProject.quick_links = quick_links;
+
+      projects.push(newProject);
+
+      try {
+        const fileContent = JSON.parse(fs.readFileSync(regPath, "utf8"));
+        fileContent.projects = projects;
+        fs.writeFileSync(regPath, JSON.stringify(fileContent, null, 2), "utf8");
+      } catch (err) {
+        console.error("Failed to update projects.json:", err);
+      }
+
+      return res.status(201).json({ success: true, project: newProject, cloneWarning });
+    } catch (err) {
+      console.error("Error registering project:", err);
+      return res.status(500).json({ error: "Failed to register project: " + err.message });
+    }
+  });
+
+  // Add quick link to project endpoint (Sprint 6)
+  app.post("/api/projects/:name/quick-links", (req, res) => {
+    const { name } = req.params;
+    const { label, url } = req.body;
+    const project = projects.find(p => p.name === name);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!label || !url) return res.status(400).json({ error: "Label and URL are required" });
+
+    if (!project.quick_links) project.quick_links = [];
+    project.quick_links.push({ label: label.trim(), url: url.trim() });
+
+    try {
+      const fileContent = JSON.parse(fs.readFileSync(regPath, "utf8"));
+      fileContent.projects = projects;
+      fs.writeFileSync(regPath, JSON.stringify(fileContent, null, 2), "utf8");
+    } catch (err) {
+      console.error("Failed to update projects.json:", err);
+    }
+
+    return res.json({ success: true, quick_links: project.quick_links });
   });
 
   app.post('/api/projects/:name/start', async (req, res) => {
@@ -464,6 +776,10 @@ export function createApp(options = {}) {
 
   app.post('/api/projects/:name/stop', (req, res) => {
     const { name } = req.params;
+    const project = projects.find(p => p.name === name);
+    if (project?.runtime === 'remote' || project?.service_kind === 'remote') {
+      return res.status(409).json({ error: 'Remote services are read-only from this dashboard.' });
+    }
     const appState = runningApps[name];
 
     if (!appState) return res.json({ success: true, message: 'Not running' });
@@ -552,7 +868,20 @@ export function createApp(options = {}) {
 }
 
 // Only listen if this file is run directly (allows importing for tests)
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const currentFile = fileURLToPath(import.meta.url);
+const argv1 = process.argv[1] || '';
+const isTest = process.argv.some(a => a.includes('test') || a.includes('node:test'));
+const isPM2 = Boolean(process.env.pm_id !== undefined || process.env.PM2_HOME || argv1.includes('ProcessContainer') || argv1.includes('pm2'));
+const isDirectRun = Boolean(
+  argv1 && (
+    argv1 === currentFile ||
+    argv1 + '.js' === currentFile ||
+    currentFile.endsWith(argv1) ||
+    currentFile.endsWith(argv1 + '.js')
+  )
+);
+
+if (!isTest && (isPM2 || isDirectRun)) {
   const { startServer } = createApp();
   startServer();
 }

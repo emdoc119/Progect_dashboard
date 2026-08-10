@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import ProjectCard from './ProjectCard';
 import SystemBar from './SystemBar';
 import LogDrawer from './LogDrawer';
+import QuickLinks from './QuickLinks';
+import RegisterProjectModal from './RegisterProjectModal';
 
-const Dashboard = ({ projects, loading, error }) => {
+const Dashboard = ({ projects, loading, error, onSelectProject, onProjectRegistered }) => {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [logProject, setLogProject] = useState(null);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
 
   const categories = useMemo(() => {
     const cats = new Set(projects.map(p => p.category || 'other'));
@@ -48,12 +51,21 @@ const Dashboard = ({ projects, loading, error }) => {
   return (
     <div className="dashboard-container">
       <header className="dashboard-header">
-        <h1>emdoc119 Projects</h1>
-        <p>An overview of all ongoing and active repositories</p>
+        <div className="header-top-row">
+          <div>
+            <h1>emdoc119 Projects</h1>
+            <p>An overview of all ongoing and active repositories</p>
+          </div>
+          <button className="btn-primary btn-register-top" onClick={() => setIsRegisterOpen(true)}>
+            <Plus size={16} /> Register Project
+          </button>
+        </div>
       </header>
 
       <SystemBar />
-      
+
+      <QuickLinks />
+
       <div className="stats-container">
         <div className="stat-box">
           <div className="stat-value">{projects.length}</div>
@@ -71,21 +83,21 @@ const Dashboard = ({ projects, loading, error }) => {
 
       <div className="filter-bar">
         {categories.map(cat => (
-          <button 
-            key={cat} 
+          <button
+            key={cat}
             className={`filter-btn ${activeCategory === cat ? 'active' : ''}`}
             onClick={() => setActiveCategory(cat)}
           >
             {cat.toUpperCase()}
           </button>
         ))}
-        
+
         <div className="search-input-wrapper">
           <Search size={16} className="search-icon" />
-          <input 
-            type="text" 
-            className="search-input" 
-            placeholder="Search projects..." 
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search projects..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
@@ -94,7 +106,12 @@ const Dashboard = ({ projects, loading, error }) => {
 
       <div className="grid">
         {filteredProjects.map(project => (
-          <ProjectCard key={project.name} project={project} onOpenLogs={handleOpenLogs} />
+          <ProjectCard
+            key={project.name}
+            project={project}
+            onOpenLogs={handleOpenLogs}
+            onSelectProject={onSelectProject}
+          />
         ))}
         {filteredProjects.length === 0 && (
           <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '3rem' }}>
@@ -107,6 +124,14 @@ const Dashboard = ({ projects, loading, error }) => {
         projectName={logProject}
         isOpen={!!logProject}
         onClose={() => setLogProject(null)}
+      />
+
+      <RegisterProjectModal
+        isOpen={isRegisterOpen}
+        onClose={() => setIsRegisterOpen(false)}
+        onProjectRegistered={(newProj) => {
+          if (onProjectRegistered) onProjectRegistered(newProj);
+        }}
       />
     </div>
   );

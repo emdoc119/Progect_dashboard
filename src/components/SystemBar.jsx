@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, HardDrive, MemoryStick, Server } from 'lucide-react';
+import { Cpu, HardDrive, MemoryStick, Server, Wifi, ExternalLink, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const formatUptime = (sec) => {
   if (!sec || sec < 0) return '0s';
@@ -61,6 +61,9 @@ const SystemBar = () => {
   const memPercent = sys.memory?.percent || 0;
   const diskPercent = sys.disk?.percent || 0;
   const cpuPercent = sys.cpuUsage || 0;
+  const access = sys.access || {};
+  const externalReady = Boolean(access.tailscaleIp && access.bindHost !== '127.0.0.1' && access.bindHost !== 'localhost');
+  const dashboardUrl = access.serveUrl || access.tailscaleUrl || access.dashboardUrl;
 
   return (
     <div className="system-bar">
@@ -76,6 +79,35 @@ const SystemBar = () => {
                detail={`${formatBytes(sys.memory?.used)} / ${formatBytes(sys.memory?.total)}`} />
         <Gauge label="Disk" percent={diskPercent} icon={HardDrive} color="#34d399"
                detail={`${formatBytes(sys.disk?.used)} / ${formatBytes(sys.disk?.total)}`} />
+      </div>
+      <div className="access-panel">
+        <div className="access-panel-title">
+          <Wifi size={14} />
+          <span>Remote access</span>
+          <span className={`access-state ${externalReady ? 'ready' : 'not-ready'}`}>
+            {externalReady ? <ShieldCheck size={13} /> : <AlertTriangle size={13} />}
+            {externalReady ? 'Tailscale ready' : 'Local only'}
+          </span>
+        </div>
+        <div className="access-panel-grid">
+          <div className="access-item">
+            <span className="access-label">Tailscale IP</span>
+            <code>{access.tailscaleIp || 'Not detected'}</code>
+          </div>
+          <div className="access-item access-url-item">
+            <span className="access-label">Phone / outside URL</span>
+            {dashboardUrl ? (
+              <a href={dashboardUrl} target="_blank" rel="noopener noreferrer" className="access-url">
+                {dashboardUrl}<ExternalLink size={12} />
+              </a>
+            ) : <code>Start Tailscale Serve</code>}
+          </div>
+        </div>
+        <div className="access-hint">
+          {access.serveConfigured
+            ? (access.dashboardProxy ? 'Tailscale Serve is connected to this dashboard.' : 'Tailscale Serve is active, but not connected to port ' + access.port + '.')
+            : 'Use the Mac Mini Tailscale IP and dashboard port, or configure Tailscale Serve.'}
+        </div>
       </div>
     </div>
   );
